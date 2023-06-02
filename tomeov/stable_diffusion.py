@@ -4,7 +4,7 @@ from typing import Type, Dict, Any, Tuple, Callable
 
 from . import merge
 from .utils import isinstance_str
-from .merge import merge_wavg
+
 
 
 def compute_merge(x: torch.Tensor, tome_info: Dict[str, Any]) -> Tuple[Callable, ...]:
@@ -52,6 +52,22 @@ def make_tome_block(block_class: Type[torch.nn.Module]) -> Type[torch.nn.Module]
             return x
     
     return ToMeBlock
+
+
+def merge_wavg(
+    merge: Callable, x: torch.Tensor
+) -> Tuple[torch.Tensor, torch.Tensor]:
+    """
+    Applies the merge function by taking a weighted average based on token size.
+    Returns the merged tensor and the new token sizes.
+    """
+    size = torch.ones_like(x[..., 0, None])
+
+    x = merge(x * size, mode="sum")
+    size = merge(size, mode="sum")
+
+    x = x / size
+    return x
 
 
 def make_diffusers_tome_block(block_class: Type[torch.nn.Module]) -> Type[torch.nn.Module]:
