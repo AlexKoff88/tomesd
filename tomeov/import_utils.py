@@ -8,7 +8,7 @@ def is_diffusers_available():
 
 def is_openclip_available():
     try:
-        import open_clip_torch
+        import open_clip
         return True
     except ImportError:
         print("OpenCLIP library is not available. Please install it to use Token Merging.")
