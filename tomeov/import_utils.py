@@ -1,16 +1,17 @@
 def is_diffusers_available():
     try:
-        import stable_diffusion
-        import utils
+        import diffusers
         return True
     except ImportError:
+        print("diffusers library is not available. Please install it to use Token Merging.")
         return False
 
 def is_openclip_available():
     try:
-        import open_clip_torch
+        import open_clip
         return True
     except ImportError:
+        print("OpenCLIP library is not available. Please install it to use Token Merging.")
         return False
 
 def is_timm_available():
@@ -18,4 +19,5 @@ def is_timm_available():
         import timm
         return True
     except ImportError:
+        print("Timm library is not available. Please install it to use Token Merging.")
         return False
