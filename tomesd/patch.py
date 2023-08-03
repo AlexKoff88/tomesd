@@ -1,3 +1,4 @@
+from copy import deepcopy
 import torch
 import math
 from typing import Type, Dict, Any, Tuple, Callable
@@ -16,7 +17,7 @@ def compute_merge(x: torch.Tensor, tome_info: Dict[str, Any]) -> Tuple[Callable,
 
     if downsample <= args["max_downsample"]:
         r = int(x.shape[1] * args["ratio"])
-        
+
         # If the batch size is odd, then it's not possible for prompted and unprompted images to be in the same
         # batch, which causes artifacts with use_rand, so force it to be off.
         use_rand = False if x.shape[0] % 2 == 1 else args["use_rand"]
@@ -31,6 +32,25 @@ def compute_merge(x: torch.Tensor, tome_info: Dict[str, Any]) -> Tuple[Callable,
     return m_a, m_c, m_m, u_a, u_c, u_m  # Okay this is probably not very good
 
 
+def _deepcopy_without_generator(self, memo):
+    """
+    Object of torch.C.Generator does not support deepcopy.
+    This function will create copy of the ToMeBlock with self._tome_info["generator"] = None.
+    """
+    cls = self.__class__
+    result = cls.__new__(cls)
+    memo[id(self)] = result
+    for k, v in self.__dict__.items():
+        if k == "_tome_info":
+            gen = v["args"]["generator"]
+            v["args"]["generator"] = None
+            setattr(result, k, deepcopy(v, memo))
+            v["args"]["generator"] = gen
+        else:
+            setattr(result, k, deepcopy(v, memo))
+    return result
+
+
 def make_tome_block(block_class: Type[torch.nn.Module]) -> Type[torch.nn.Module]:
     """
     Make a patched class on the fly so we don't have to import any specific modules.
@@ -41,6 +61,9 @@ def make_tome_block(block_class: Type[torch.nn.Module]) -> Type[torch.nn.Module]
         # Save for unpatching later
         _parent = block_class
 
+        def __deepcopy__(self, memo):
+            return _deepcopy_without_generator(self, memo)
+
         def _forward(self, x: torch.Tensor, context: torch.Tensor = None) -> torch.Tensor:
             m_a, m_c, m_m, u_a, u_c, u_m = compute_merge(x, self._tome_info)
 
@@ -50,7 +73,7 @@ def make_tome_block(block_class: Type[torch.nn.Module]) -> Type[torch.nn.Module]
             x = u_m(self.ff(m_m(self.norm3(x)))) + x
 
             return x
-    
+
     return ToMeBlock
 
 
@@ -78,6 +101,9 @@ def make_diffusers_tome_block(block_class: Type[torch.nn.Module]) -> Type[torch.
     class ToMeBlock(block_class):
         # Save for unpatching later
         _parent = block_class
+
+        def __deepcopy__(self, memo):
+            return _deepcopy_without_generator(self, memo)
 
         def forward(
             self,
@@ -137,7 +163,7 @@ def make_diffusers_tome_block(block_class: Type[torch.nn.Module]) -> Type[torch.
 
             # 3. Feed-forward
             norm_hidden_states = self.norm3(hidden_states)
-            
+
             if self.use_ada_layer_norm_zero:
                 norm_hidden_states = norm_hidden_states * (1 + scale_mlp[:, None]) + shift_mlp[:, None]
 
@@ -184,7 +210,7 @@ def apply_patch(
      - ratio: The ratio of tokens to merge. I.e., 0.4 would reduce the total number of tokens by 40%.
               The maximum value for this is 1-(1/(sx*sy)). By default, the max is 0.75 (I recommend <= 0.5 though).
               Higher values result in more speed-up, but with more visual quality loss.
-    
+
     Args to tinker with if you want:
      - max_downsample [1, 2, 4, or 8]: Apply ToMe to layers with at most this amount of downsampling.
                                        E.g., 1 only applies to layers with no downsampling (4/15) while
@@ -255,5 +281,5 @@ def remove_patch(model: torch.nn.Module):
 
         if module.__class__.__name__ == "ToMeBlock":
             module.__class__ = module._parent
-    
+
     return model
